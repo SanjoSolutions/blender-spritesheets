@@ -1,21 +1,11 @@
 import os
-import sys
 import bpy
 import math
 import shutil
 import platform
-import subprocess
 import json
-from properties.SpriteSheetPropertyGroup import SpriteSheetPropertyGroup
-from properties.ProgressPropertyGroup import ProgressPropertyGroup
 
 platform = platform.system()
-if platform == "Windows":
-    ASSEMBLER_FILENAME = "assembler.exe"
-elif platform == "Linux":
-    ASSEMBLER_FILENAME = "assembler_linux"
-else:
-    ASSEMBLER_FILENAME = "assembler_mac"
 
 class RenderSpriteSheet(bpy.types.Operator):
     """Operator used to render sprite sheets for an object"""
@@ -50,14 +40,7 @@ class RenderSpriteSheet(bpy.types.Operator):
             self.processAction(action, scene, props,
                                progressProps, objectToRender)
 
-        assemblerPath = os.path.normpath(
-            os.path.join(
-                props.binPath,
-                ASSEMBLER_FILENAME,
-            )
-        )
-        print("Assembler path: ", assemblerPath)
-        subprocess.run([assemblerPath, "--root", bpy.path.abspath(props.outputPath), "--out", objectToRender.name + ".png"])
+        combine_images(bpy.path.abspath(props.outputPath), bpy.path.abspath(os.path.join(props.outputPath, objectToRender.name + ".png")))
 
         json_info = {
             "name": objectToRender.name,
@@ -102,3 +85,49 @@ def frame_count(frame_range):
     frameMin = math.floor(frame_range[0])
     frameMax = math.ceil(frame_range[1])
     return (frameMax - frameMin, frameMin, frameMax)
+
+
+def combine_images(root, output_path):
+    """Combines all images in the temp folder into a single sprite sheet"""
+    images_path = os.path.join(root, 'temp')
+    images = []
+    for file in os.listdir(images_path):
+        if file.endswith(".png"):
+            images.append(os.path.join(images_path, file))
+
+    images.sort()
+    if len(images) == 0:
+        return
+
+    first_image = images[0]
+    first_image_name = os.path.basename(first_image)
+    first_image_name = first_image_name[:first_image_name.rfind("_")]
+    first_image_name = first_image_name[:first_image_name.rfind("0")]
+
+    first_image = bpy.data.images.load(first_image)
+    first_image.pack()
+
+    width = first_image.size[0]
+    height = first_image.size[1]
+
+    sprite_sheet = bpy.data.images.new(
+        first_image_name, width=width * len(images), height=height)
+    index = 0
+    copy_area(first_image, sprite_sheet, index, len(images))
+
+    for index, image in enumerate(images[1:]):
+        image = bpy.data.images.load(image)
+        image.pack()
+        copy_area(image, sprite_sheet, index + 1, len(images))
+
+    sprite_sheet.file_format = 'PNG'
+    sprite_sheet.filepath_raw = os.path.join(output_path)
+    sprite_sheet.save()
+
+def copy_area(source, destination, index, number_of_images):
+    """Copies the contents of one image to another"""
+    width = source.size[0]
+    height = source.size[1]
+    offset_x = index * width
+    for row in range(height):
+        destination.pixels[row * (number_of_images * width * 4) + offset_x * 4:row * (number_of_images * width * 4) + offset_x * 4 + width * 4] = source.pixels[row * (width * 4):row * (width * 4) + width * 4]
